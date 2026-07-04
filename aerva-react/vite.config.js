@@ -73,6 +73,25 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    port: 5173
+    port: 5173,
+    proxy: {
+      '/api/dashboard': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/api/reports': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/devices': {
+        target: 'http://localhost:3000',
+        changeOrigin: true
+      },
+      '/socket.io': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        ws: true
+      }
+    }
   }
 });

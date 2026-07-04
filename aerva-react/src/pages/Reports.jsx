@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../store.jsx';
 import { IconPdf, IconExcel, IconDownload } from '../components/icons.jsx';
+import { reportDownloadUrl } from '../lib/backendApi.js';
 
 const STATUS_COLORS = {
   Safe: '#1FA063',
@@ -15,7 +16,7 @@ function aqiStatus(aqi) {
 }
 
 export default function Reports() {
-  const { devices, showToast } = useApp();
+  const { devices, showToast, backendDeviceMac } = useApp();
   const [format, setFormat] = useState('pdf');
   const [room, setRoom] = useState('all');
   const [from, setFrom] = useState('2026-05-01');
@@ -55,7 +56,13 @@ export default function Reports() {
   const toggleInclude = (key) => setInclude(p => ({ ...p, [key]: !p[key] }));
 
   const handleGenerate = () => {
-    showToast(`Generating ${format.toUpperCase()} report for ${room === 'all' ? 'all rooms' : devices.find(d => d.id === room)?.name}…`);
+    const selectedDevice = room === 'all' ? devices[0] : devices.find(d => d.id === room);
+    const deviceMac = backendDeviceMac || 'EC64C96EDA3C';
+    const range = mapDatesToRange(from, to);
+    const url = reportDownloadUrl({ deviceMac, range, format });
+
+    showToast(`Generating ${format.toUpperCase()} report for ${selectedDevice?.name || 'selected room'}…`);
+    window.open(url, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -194,4 +201,15 @@ export default function Reports() {
       </div>
     </>
   );
+}
+
+function mapDatesToRange(from, to) {
+  const start = new Date(from);
+  const end = new Date(to);
+  const diffMs = Math.abs(end.getTime() - start.getTime());
+  const days = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
+
+  if (days <= 1) return '24h';
+  if (days <= 7) return '7d';
+  return '30d';
 }

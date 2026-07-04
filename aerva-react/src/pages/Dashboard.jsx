@@ -1,4 +1,4 @@
-import React, { useContext, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip } from 'recharts';
 import { useApp } from '../store.jsx';
@@ -6,6 +6,7 @@ import { ModalContext } from '../App.jsx';
 import { SENSORS } from '../data/sensors.js';
 import { RoomIcon, makeChartData } from '../data/devices.jsx';
 import { IconPlus, IconEdit, IconSparkle, IconChevron } from '../components/icons.jsx';
+import { fetchGraphData } from '../lib/backendApi.js';
 
 function makeSpark(points, color) {
   const max = Math.max(...points);
@@ -186,15 +187,19 @@ function SensorCard({ sensor, active, onClick }) {
 }
 
 export default function Dashboard() {
-  const { devices, primaryRoomName, mqttStatus, live, lastUpdate, getLiveSensor } = useApp();
+  const { devices, primaryRoomName, mqttStatus, live, lastUpdate, getLiveSensor, backendDeviceMac } = useApp();
   const { openAddDevice, openRenameDevice } = useContext(ModalContext);
   const navigate = useNavigate();
   const [selectedSensor, setSelectedSensor] = useState(null);
   const [timeframe, setTimeframe] = useState('24H');
+  const [graphPoints, setGraphPoints] = useState([]);
+  const [graphLoading, setGraphLoading] = useState(false);
 
   const primary = devices.find(d => d.id === 'living-room') || devices[0];
   const allSensors = SENSORS.filter(s => s.id !== 'aqi');
-  const chartData = makeChartData(1, 38, 14);
+  const chartData = useMemo(() => (
+    graphPoints.length ? graphPoints : makeChartData(1, 38, 14)
+  ), [graphPoints]);
   const liveAqi = getLiveSensor('aqi');
   const heroAqi = liveAqi ? liveAqi.value : (primary?.aqi || 68);
   const onlineCount = devices.filter(d => d.status !== 'off').length;
@@ -221,6 +226,38 @@ export default function Dashboard() {
   const o2Val = liveO2 ? liveO2.value : 20.9;
   const tempVal = liveTemp ? liveTemp.value : 28.4;
   const rhVal = liveRh ? liveRh.value : 54;
+
+  useEffect(() => {
+    let ignore = false;
+    const range = toBackendRange(timeframe);
+
+    setGraphLoading(true);
+    fetchGraphData({
+      deviceMac: backendDeviceMac || 'EC64C96EDA3C',
+      metric: 'pm2_5',
+      range
+    })
+      .then((data) => {
+        if (ignore) return;
+        const points = (data?.points || [])
+          .filter((point) => point?.value != null)
+          .map((point) => ({
+            time: formatGraphTime(point.time, range),
+            value: Number(point.value)
+          }));
+        setGraphPoints(points);
+      })
+      .catch(() => {
+        if (!ignore) setGraphPoints([]);
+      })
+      .finally(() => {
+        if (!ignore) setGraphLoading(false);
+      });
+
+    return () => {
+      ignore = true;
+    };
+  }, [backendDeviceMac, timeframe]);
 
   return (
     <>
@@ -400,10 +437,12 @@ export default function Dashboard() {
           <div className="chart-head">
             <div className="chart-title-block">
               <div className="chart-title">PM2.5 trend</div>
-              <div className="chart-sub">{primaryRoomName} · last 24 hours</div>
+              <div className="chart-sub">
+                {primaryRoomName} · {graphLoading ? 'loading history' : `last ${timeframe.toLowerCase()}`}
+              </div>
             </div>
             <div className="timeframe">
-              {['1H', '24H', '7D', '30D', 'Custom'].map(tf => (
+              {['1H', '24H', '7D', '30D'].map(tf => (
                 <button key={tf} className={`tf-btn${timeframe === tf ? ' active' : ''}`} onClick={() => setTimeframe(tf)}>{tf}</button>
               ))}
             </div>
@@ -456,4 +495,29 @@ export default function Dashboard() {
       </div>
     </>
   );
+}
+
+function toBackendRange(timeframe) {
+  const ranges = {
+    '1H': '1h',
+    '24H': '24h',
+    '7D': '7d',
+    '30D': '30d'
+  };
+  return ranges[timeframe] || '24h';
+}
+
+function formatGraphTime(value, range) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  if (range === '7d' || range === '30d') {
+    return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+  }
+
+  return date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 }

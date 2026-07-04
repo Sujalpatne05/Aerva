@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
+import { io } from 'socket.io-client';
 import { INITIAL_DEVICES, INITIAL_RULES } from './data/devices.jsx';
 import { mqttManager, loadConfig } from './lib/mqttClient.js';
-import { evaluateSensor } from './lib/aqi.js';
+import { evaluateSensor, aqiFromPm25, aqiCategory } from './lib/aqi.js';
+import { API_BASE, DASHBOARD_EVENT, fetchLatestDashboard } from './lib/backendApi.js';
 
 const AppContext = createContext(null);
 
@@ -20,7 +22,8 @@ const initialState = {
   mqttConfig: loadConfig(),
   live: null,
   liveHistory: [],
-  lastUpdate: null
+  lastUpdate: null,
+  backendDeviceMac: null
 };
 
 function reducer(state, action) {
@@ -92,7 +95,14 @@ function reducer(state, action) {
           : d
       );
 
-      return { ...state, live, liveHistory: history, lastUpdate: live.receivedAt, devices };
+      return {
+        ...state,
+        live,
+        liveHistory: history,
+        lastUpdate: live.receivedAt,
+        devices,
+        backendDeviceMac: live.mac || state.backendDeviceMac
+      };
     }
 
     default:
@@ -121,6 +131,52 @@ export function AppProvider({ children }) {
     }
 
     return () => { offStatus(); offMsg(); };
+  }, []);
+
+  useEffect(() => {
+    let ignore = false;
+    const socket = io(API_BASE || '/', {
+      path: '/socket.io',
+      transports: ['websocket', 'polling']
+    });
+
+    async function loadDashboardBootstrap() {
+      try {
+        const raw = await fetchLatestDashboard();
+        if (ignore) return;
+
+        const normalized = normalizeDashboardPayload(raw);
+        dispatch({ type: 'MQTT_STATUS', payload: { status: 'connected', error: null } });
+        dispatch({ type: 'MQTT_MESSAGE', payload: normalized });
+      } catch {
+        // Keep demo/MQTT flow if backend is unavailable.
+      }
+    }
+
+    loadDashboardBootstrap();
+
+    socket.on('connect', () => {
+      if (!ignore) {
+        dispatch({ type: 'MQTT_STATUS', payload: { status: 'connected', error: null } });
+      }
+    });
+
+    socket.on(DASHBOARD_EVENT, (raw) => {
+      if (ignore) return;
+      const normalized = normalizeDashboardPayload(raw);
+      dispatch({ type: 'MQTT_MESSAGE', payload: normalized });
+    });
+
+    socket.on('disconnect', () => {
+      if (!ignore) {
+        dispatch({ type: 'MQTT_STATUS', payload: { status: 'offline', error: null } });
+      }
+    });
+
+    return () => {
+      ignore = true;
+      socket.disconnect();
+    };
   }, []);
 
   const addDevice = useCallback((device) => dispatch({ type: 'ADD_DEVICE', payload: device }), []);
@@ -178,6 +234,43 @@ export function AppProvider({ children }) {
       {children}
     </AppContext.Provider>
   );
+}
+
+function normalizeDashboardPayload(raw) {
+  const readings = {
+    pm25: toNumber(raw?.readings?.pm2_5),
+    pm10: toNumber(raw?.readings?.pm10),
+    pm1: toNumber(raw?.readings?.pm1_0),
+    co2: toNumber(raw?.readings?.co2_ppm),
+    co: toNumber(raw?.readings?.co_ppm),
+    o2: toNumber(raw?.readings?.o2_pct),
+    temp: toNumber(raw?.readings?.temperature),
+    rh: toNumber(raw?.readings?.humidity)
+  };
+
+  const aqi = aqiFromPm25(readings.pm25);
+
+  return {
+    mac: raw?.device_mac || null,
+    time: raw?.received_at || null,
+    timeStatus: raw?.status?.time_status || null,
+    readings,
+    aqi,
+    aqiCategory: aqiCategory(aqi),
+    diag: {
+      rssi: toNumber(raw?.readings?.rssi),
+      o2Warn: !!raw?.status?.o2_warn,
+      uptime: null,
+      mqttErr: toNumber(raw?.status?.mqtt_err)
+    },
+    receivedAt: Date.now()
+  };
+}
+
+function toNumber(value) {
+  if (value == null) return null;
+  const n = Number(value);
+  return Number.isNaN(n) ? null : n;
 }
 
 export function useApp() {
