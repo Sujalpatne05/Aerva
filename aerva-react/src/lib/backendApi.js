@@ -37,7 +37,7 @@ export function downloadExcelReport(deviceMac, range) {
     range
   });
   
-  window.location.href = `${API_BASE}/api/reports/export?${params}`;
+  window.location.href = `${API_BASE}/api/reports/excel?${params}`;
 }
 
 // Download PDF report
@@ -47,7 +47,7 @@ export function downloadPdfReport(deviceMac, range) {
     range
   });
   
-  window.location.href = `${API_BASE}/api/reports/export-pdf?${params}`;
+  window.location.href = `${API_BASE}/api/reports/pdf?${params}`;
 }
 
 // Generate report download URL (for Reports page)
@@ -57,6 +57,6 @@ export function reportDownloadUrl({ deviceMac, range, format }) {
     range
   });
   
-  const endpoint = format === 'pdf' ? '/api/reports/export-pdf' : '/api/reports/export';
+  const endpoint = format === 'pdf' ? '/api/reports/pdf' : '/api/reports/excel';
   return `${API_BASE}${endpoint}?${params}`;
 }
