@@ -1,8 +1,6 @@
 const e = require("express");
-const pool = require("./db_connection");
+const pool = require("../controller/db_connection");
 const excelJS = require("exceljs");
-const fs = require("fs");
-const path = require("path");
 
 
 const allowedMetrics = {
@@ -92,49 +90,9 @@ const reportData = async (deviceMac,range) => {
         })));
         console.log("Data retrieved for Excel export:", result.rows.length, "rows");
     }catch(err){
-        return reportDataFromFile(deviceMac, range);
+        console.error("Error exporting data to Excel:", err);
+        throw err;
     }   
-}
-
-function reportDataFromFile(deviceMac, range) {
-    const records = loadSensorRecords().filter((r) => r.message.MAC === deviceMac);
-    const selected = records.length ? records : loadSensorRecords();
-    const countMap = { "1h": 12, "24h": 120, "7d": 420, "30d": 720 };
-    const takeCount = countMap[range] || 120;
-
-    return selected.slice(-takeCount).map((row, index) => ({
-        id: index + 1,
-        device_mac: row.message.MAC,
-        received_at: row.receivedAt,
-        readings: {
-            temperature: Number(row.message.env.temp),
-            humidity: Number(row.message.env.hum),
-            co_ppm: Number(row.message.gas.co_ppm),
-            o2_pct: Number(row.message.gas.o2_pct),
-            co2_ppm: Number(row.message.gas.co2_ppm),
-            pm1_0: Number(row.message.pm.pm1_0),
-            pm2_5: Number(row.message.pm.pm2_5),
-            pm10: Number(row.message.pm.pm10),
-            rssi: Number(row.message.diag?.rssi)
-        }
-    }));
-}
-
-function loadSensorRecords() {
-    const filePath = path.join(__dirname, "..", "data", "payloads.json");
-    const text = fs.readFileSync(filePath, "utf8");
-    return text
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-            try {
-                return JSON.parse(line);
-            } catch {
-                return null;
-            }
-        })
-        .filter((row) => row && row.message && row.message.env && row.message.gas && row.message.pm);
 }
 
 module.exports = { reportData };

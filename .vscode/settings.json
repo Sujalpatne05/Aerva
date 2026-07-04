@@ -1,2 +1,12 @@
 {
+  "files.exclude": {
+    "aerva-backend-main": true,
+    "reports": true,
+    "node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/aerva-backend-main/**": true,
+    "**/reports/**": true,
+    "**/node_modules/**": true
+  }
 }

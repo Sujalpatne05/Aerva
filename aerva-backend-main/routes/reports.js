@@ -1,9 +1,9 @@
 const express = require("express");
 const router = express.Router();
-const { exportExcel } = require("../services/exportExcelService.js");
+const { exportExcel } = require("../services/exportExcelService");
 const { exportPDF } = require("../services/exportPDF.js");
 
-async function handleExcel(req, res) {
+router.get("/excel", async (req, res) => {
     try {
         const { device_mac, range } = req.query;
 
@@ -26,9 +26,9 @@ async function handleExcel(req, res) {
         console.error("Error retrieving report data:", err);
         res.status(500).json({ error: "Internal Server Error" });
     }
-}
+});
 
-async function handlePdf(req, res) {
+router.get("/pdf", async (req, res) => {
     try {
         const { device_mac, range } = req.query;
 
@@ -51,11 +51,6 @@ async function handlePdf(req, res) {
         console.error("Error retrieving report data:", err);
         res.status(500).json({ error: "Internal Server Error" });
     }
-}
-
-router.get("/excel", handleExcel);
-router.get("/export", handleExcel);
-router.get("/pdf", handlePdf);
-router.get("/export-pdf", handlePdf);
+});
 
 module.exports = router;

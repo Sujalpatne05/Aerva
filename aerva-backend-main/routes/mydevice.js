@@ -1,6 +1,6 @@
 const express = require("express");
 const router = require("express").Router();
-const { retrivelLatestData ,graphDataRetrieval } = require("../controller/dashboard_data.js");
+const { retrivelLatestData ,graphDataRetrieval } = require("../controller/dashboard_data");
 const {liveAggregateData} = require("../controller/devices.js")
 
 router.get("/",async(req,res)=>{

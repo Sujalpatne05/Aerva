@@ -1,5 +1,5 @@
 // Backend API configuration
-export const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+export const API_BASE = import.meta.env.VITE_API_URL || 'https://aerva-backend.onrender.com';
 export const DASHBOARD_EVENT = '/api/dashboard/';
 
 // Fetch initial dashboard data
@@ -48,4 +48,15 @@ export function downloadPdfReport(deviceMac, range) {
   });
   
   window.location.href = `${API_BASE}/api/reports/export-pdf?${params}`;
+}
+
+// Generate report download URL (for Reports page)
+export function reportDownloadUrl({ deviceMac, range, format }) {
+  const params = new URLSearchParams({
+    device_mac: deviceMac,
+    range
+  });
+  
+  const endpoint = format === 'pdf' ? '/api/reports/export-pdf' : '/api/reports/export';
+  return `${API_BASE}${endpoint}?${params}`;
 }

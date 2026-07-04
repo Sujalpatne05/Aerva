@@ -1,4 +1,4 @@
-const pool = require("./db_connection");
+const pool = require("../controller/db_connection");
 
 
 

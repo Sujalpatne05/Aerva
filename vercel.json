@@ -1,6 +1,8 @@
 {
-  "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "buildCommand": "cd aerva-react && npm install && npm run build",
+  "outputDirectory": "aerva-react/dist",
+  "installCommand": "cd aerva-react && npm install",
+  "framework": "vite",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
