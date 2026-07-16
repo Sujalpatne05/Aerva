@@ -136,8 +136,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     let ignore = false;
     const socket = io(API_BASE || '/', {
-      path: '/socket.io',
-      transports: ['websocket', 'polling']
+      path: '/socket.io'
     });
 
     async function loadDashboardBootstrap() {
@@ -237,6 +236,7 @@ export function AppProvider({ children }) {
 }
 
 function normalizeDashboardPayload(raw) {
+  const receivedAt = new Date(raw?.received_at).getTime();
   const readings = {
     pm25: toNumber(raw?.readings?.pm2_5),
     pm10: toNumber(raw?.readings?.pm10),
@@ -263,7 +263,7 @@ function normalizeDashboardPayload(raw) {
       uptime: null,
       mqttErr: toNumber(raw?.status?.mqtt_err)
     },
-    receivedAt: Date.now()
+    receivedAt: Number.isNaN(receivedAt) ? Date.now() : receivedAt
   };
 }
 

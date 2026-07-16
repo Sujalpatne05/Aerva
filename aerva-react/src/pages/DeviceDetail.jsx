@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useMemo } from 'react';
 import { useParams, Navigate } from 'react-router-dom';
 import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, CartesianGrid, Tooltip } from 'recharts';
 import { useApp } from '../store.jsx';
@@ -6,6 +6,33 @@ import { ModalContext } from '../App.jsx';
 import { SENSORS, findSensor } from '../data/sensors.js';
 import { SensorIllustration, makeChartData, makeReadings } from '../data/devices.jsx';
 import { IconEdit, IconDownload, IconSparkle } from '../components/icons.jsx';
+import { aqiCategory, evaluateSensor } from '../lib/aqi.js';
+
+function formatValue(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  const numericValue = Number(value);
+  return Number.isInteger(numericValue) ? numericValue : numericValue.toFixed(1);
+}
+
+function formatReadingTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+
+  return date.toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+}
+
+function getReadingStatus(sensorId, value) {
+  const status = sensorId === 'aqi'
+    ? aqiCategory(value).status
+    : evaluateSensor(sensorId, value).status;
+
+  return status === 'good' ? 'green' : 'yellow';
+}
 
 function SensorTab({ sensor, active, onClick }) {
   return (
@@ -15,7 +42,7 @@ function SensorTab({ sensor, active, onClick }) {
         <span className={`st-dot ${sensor.status}`} />
       </div>
       <div className="st-val">
-        <span className="v">{sensor.value}</span>
+        <span className="v">{formatValue(sensor.value)}</span>
         <span className="u">{sensor.unit}</span>
       </div>
       <span className={`st-status ${sensor.status}`}>{sensor.statusText}</span>
@@ -28,16 +55,75 @@ function SensorTab({ sensor, active, onClick }) {
 
 export default function DeviceDetail() {
   const { deviceId } = useParams();
-  const { devices, currentSensorId, setSensor } = useApp();
+  const {
+    devices,
+    currentSensorId,
+    setSensor,
+    getLiveSensor,
+    liveHistory,
+    mqttStatus,
+    lastUpdate
+  } = useApp();
   const { openRenameDevice } = useContext(ModalContext);
 
   const device = devices.find(d => d.id === deviceId);
+  const isLivingRoom = deviceId === 'living-room';
+  const sensors = SENSORS.map((sensorDefinition) => {
+    if (!isLivingRoom) return sensorDefinition;
+
+    const liveSensor = getLiveSensor(sensorDefinition.id);
+    return liveSensor
+      ? { ...sensorDefinition, ...liveSensor }
+      : sensorDefinition;
+  });
+
+  const sensor = sensors.find(s => s.id === currentSensorId) || findSensor(currentSensorId);
+  const liveSensorHistory = isLivingRoom
+    ? liveHistory.filter(point => point[currentSensorId] != null)
+    : [];
+  const historyValues = liveSensorHistory.map(point => Number(point[currentSensorId]));
+  const hasLiveHistory = historyValues.length > 0;
+  const liveAverage = hasLiveHistory
+    ? historyValues.reduce((sum, value) => sum + value, 0) / historyValues.length
+    : null;
+
+  const liveStats = hasLiveHistory
+    ? {
+        average: liveAverage,
+        peak: Math.max(...historyValues),
+        variance: Math.sqrt(
+          historyValues.reduce((sum, value) => sum + ((value - liveAverage) ** 2), 0)
+          / historyValues.length
+        )
+      }
+    : null;
+
+  const chartData = useMemo(() => {
+    if (!isLivingRoom) {
+      return makeChartData(sensor.id.length, sensor.value, Math.max(2, sensor.variance));
+    }
+
+    return liveSensorHistory.map(point => ({
+      time: formatReadingTime(point.t),
+      value: Number(point[currentSensorId])
+    }));
+  }, [currentSensorId, isLivingRoom, liveHistory]);
+
+  const readings = isLivingRoom
+    ? liveSensorHistory.slice(-12).reverse().map(point => ({
+        t: formatReadingTime(point.t),
+        v: formatValue(point[currentSensorId]),
+        s: getReadingStatus(currentSensorId, Number(point[currentSensorId]))
+      }))
+    : makeReadings();
+
   if (!device) return <Navigate to="/" replace />;
 
-  const sensor = findSensor(currentSensorId);
-  const chartData = makeChartData(sensor.id.length, sensor.value, Math.max(2, sensor.variance));
-  const readings = makeReadings();
-  const chartColor = sensor.status === 'bad' ? '#D63D3D' : sensor.status === 'moderate' ? '#EFBE1D' : '#1FA063';
+  const chartColor = ['bad', 'poor', 'hazardous'].includes(sensor.status)
+    ? '#D63D3D'
+    : sensor.status === 'moderate' ? '#EFBE1D' : '#1FA063';
+  const connectionLabel = mqttStatus === 'connected' ? 'Online' : 'Connecting';
+  const updatedLabel = lastUpdate ? formatReadingTime(lastUpdate) : '—';
 
   return (
     <>
@@ -54,7 +140,7 @@ export default function DeviceDetail() {
               <IconEdit />
             </button>
           </h1>
-          <div className="sub mono">Ground floor · Online · firmware v2.4.1</div>
+          <div className="sub mono">Ground floor · {connectionLabel} · Last update {updatedLabel}</div>
         </div>
         <div className="head-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           <button className="btn btn-ghost" onClick={() => openRenameDevice(device.id)}>
@@ -67,7 +153,7 @@ export default function DeviceDetail() {
       {/* Sensor tabs */}
       <div className="sensor-tabs-wrap">
         <div className="sensor-tabs">
-          {SENSORS.map(s => (
+          {sensors.map(s => (
             <SensorTab key={s.id} sensor={s} active={s.id === currentSensorId} onClick={() => setSensor(s.id)} />
           ))}
         </div>
@@ -106,11 +192,11 @@ export default function DeviceDetail() {
                 <div className="b">{sensor.name === 'RH' ? 'Humidity' : sensor.fullName}</div>
               </div>
             </div>
-            <div className="live-pill"><span className="live-dot" /> LIVE</div>
+            <div className="live-pill"><span className="live-dot" /> {mqttStatus === 'connected' ? 'LIVE' : 'WAITING'}</div>
           </div>
 
           <div className="reading-big">
-            <span className="n">{sensor.value}</span>
+            <span className="n">{formatValue(sensor.value)}</span>
             <span className="u">{sensor.unit}</span>
           </div>
 
@@ -124,24 +210,26 @@ export default function DeviceDetail() {
           </div>
 
           <div className="reading-stats">
-            <div className="reading-stat"><div className="l">24h Avg</div><div className="v">{sensor.avg24}</div></div>
-            <div className="reading-stat"><div className="l">Peak today</div><div className="v">{sensor.peak}</div></div>
-            <div className="reading-stat"><div className="l">Variance</div><div className="v">±{sensor.variance}</div></div>
+            <div className="reading-stat"><div className="l">{hasLiveHistory ? 'Session Avg' : '24h Avg'}</div><div className="v">{formatValue(liveStats?.average ?? sensor.avg24)}</div></div>
+            <div className="reading-stat"><div className="l">{hasLiveHistory ? 'Session Peak' : 'Peak today'}</div><div className="v">{formatValue(liveStats?.peak ?? sensor.peak)}</div></div>
+            <div className="reading-stat"><div className="l">Variance</div><div className="v">±{formatValue(liveStats?.variance ?? sensor.variance)}</div></div>
           </div>
         </div>
 
         <div className="card chart-card">
           <div className="chart-head">
             <div>
-              <div className="chart-title">Historical trend</div>
-              <div className="chart-sub">{sensor.name} · last 24 hours · 5 min intervals</div>
+              <div className="chart-title">{isLivingRoom ? 'Live trend' : 'Historical trend'}</div>
+              <div className="chart-sub">{sensor.name} · {isLivingRoom ? 'live Socket.IO session' : 'last 24 hours · 5 min intervals'}</div>
             </div>
-            <div className="timeframe">
-              <button className="tf-btn">1H</button>
-              <button className="tf-btn active">24H</button>
-              <button className="tf-btn">7D</button>
-              <button className="tf-btn">30D</button>
-            </div>
+            {!isLivingRoom && (
+              <div className="timeframe">
+                <button className="tf-btn">1H</button>
+                <button className="tf-btn active">24H</button>
+                <button className="tf-btn">7D</button>
+                <button className="tf-btn">30D</button>
+              </div>
+            )}
           </div>
           <div style={{ width: '100%', height: 320 }}>
             <ResponsiveContainer>
@@ -171,11 +259,16 @@ export default function DeviceDetail() {
         <div className="chart-head">
           <div>
             <div className="chart-title">Last 12 readings</div>
-            <div className="chart-sub">Auto-refresh every 30 seconds</div>
+            <div className="chart-sub">{isLivingRoom ? 'Updates when the backend emits a reading' : 'Auto-refresh every 30 seconds'}</div>
           </div>
           <span className="panel-link">Export CSV →</span>
         </div>
         <div className="readings-list">
+          {readings.length === 0 && (
+            <div className="mono" style={{ color: 'var(--text-3)', padding: '18px 0' }}>
+              Waiting for the first live reading…
+            </div>
+          )}
           {readings.map((r, i) => (
             <div key={i} className="reading-item">
               <span className="t">{r.t}</span>

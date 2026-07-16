@@ -71,6 +71,18 @@ export default defineConfig({
       }
     })
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          charts: ['recharts'],
+          mqtt: ['mqtt'],
+          socket: ['socket.io-client']
+        }
+      }
+    }
+  },
   server: {
     host: true,
     port: 5173,

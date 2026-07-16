@@ -8,3 +8,5 @@ dist/
 dev-dist/
 .vite/
 .vercel/
+dist.zip
+dist1.zip
